@@ -1,0 +1,301 @@
+'use client';
+
+import { useEffect, useRef, useState } from "react";
+
+import Image from "next/image";
+import { useRouter } from "next/navigation";
+import { LocationType } from "@/types/jobs";
+import Button from "./button";
+import ModalTemplate from "./modalTemplate";
+import { getBidsByJobId, getUserById } from "@/utils/functions";
+import { Bid } from "@/types/bid";
+import { toast } from "react-toastify";
+import { User } from "@/types/user";
+import ApplicationPost from "./applicationPost";
+import SmallLoading from "./smallLoading";
+import { useDashboard } from "@/context/dashboardContext";
+
+interface userJobOrGigPostProps {
+    job_id?: string;
+    gig_id?: string;
+    title: string;
+    description: string;
+    location?: LocationType; 
+    tags: string[];  
+    price?: number;
+    currency?: string;
+    image?: string;
+    minBudget?: number;
+    maxBudget?: number;
+    deadline?: number;
+    status?: string;
+    link?: string;
+    variant?: "job" | "gig";
+    hasBids?: boolean;
+    bidsCount?: number;
+    /** True when this job has an unread bid notification (highlight + badge until user opens Applications). */
+    hasUnreadBidNotification?: boolean;
+    /** Called when user opens Applications modal; marks bid notifications as read so highlight does not reappear after refresh. */
+    onApplicationsOpen?: () => void;
+}
+
+interface ApplicationWithUser extends Bid {
+    freelancer?: User;
+}
+
+type freelancer = {
+    id: string;
+    display_name: string;
+    email: string;
+    address: string;
+    image_id: string;
+    finished_job_num: number;
+    total_fund: number;
+}
+
+interface ApplicationItem {
+    id: string;
+    bid_amount: string;
+    token_symbol: string;
+    cover_letter_md: string;
+    period: number;
+    status: string;
+    created_at: string;
+    freelancer: freelancer;
+}
+
+const editIcon = "/Grmps/lucide_edit.svg";
+
+const COLLAPSED_MAX_HEIGHT = 120;
+
+const UserJobOrGigPost = ({ job_id, gig_id, description, title, location, tags, image, minBudget, maxBudget, currency, deadline, status, link, variant = "job", hasBids = false, bidsCount = 0, hasUnreadBidNotification = false, onApplicationsOpen }: userJobOrGigPostProps) => {
+    const [expanded, setExpanded] = useState(false);
+    const [canToggle, setCanToggle] = useState(false);
+    const descriptionRef = useRef<HTMLParagraphElement>(null);
+    const [isOpen, setIsOpen] = useState(false);
+    // const [applications, setApplications] = useState<ApplicationWithUser[]>([]);
+    const [applications, setApplications] = useState<ApplicationItem[]>([]);
+    const [loading, setLoading] = useState("success");
+
+    const { jobsInfo } = useDashboard();
+    const router = useRouter();
+    const [isExpired, setIsExpired] = useState(false);
+    
+    useEffect(() => {
+        const now = new Date().getTime() / 1000;
+        if(status == "open" && deadline && deadline < now) setIsExpired(true);
+    }, [])
+    useEffect(() => {
+        const el = descriptionRef.current;
+        if (!el) {
+            return;
+        }
+
+        setCanToggle(el.scrollHeight > COLLAPSED_MAX_HEIGHT);
+    }, [description]);
+
+    const handleApplications = async () => {
+        setLoading("pending");
+        const job = jobsInfo.find(job => job.id === job_id);
+        if (job && Array.isArray(job.bids)) {
+            const sortedBids = [...job.bids].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+            setApplications(sortedBids as ApplicationItem[]);
+        } else {
+            setApplications([]);
+        }
+        setLoading("success");
+        setIsOpen(true);
+        onApplicationsOpen?.();
+    }
+
+    const showBidHighlight = variant === "job" && hasUnreadBidNotification;
+    const showBidBadge = variant === "job" && hasBids;
+
+    return (
+        <div>
+            <div className="linear-border rounded-lg p-0.25 linear-border--dark-hover">
+                <div className="linear-border__inner rounded-[0.4375rem] p-6 bg-white">
+                    {loading === "pending" ? (
+                        <SmallLoading size="md" />
+                    ) : (
+                        <div className="text-black">
+                            <div className="flex justify-between gap-6">
+                                <div className="flex flex-col max-w-[75%]">
+                                    <h1 className="text-subtitle font-bold text-black">{title}</h1>
+                                    {variant === "job" && (
+                                        <p className={`text-normal font-regular mt-1 inline-flex items-center gap-2 flex-wrap ${showBidHighlight ? "bids-count-unread" : "text-black"}`}>
+                                            <span>Bids:</span>
+                                            {showBidBadge ? (
+                                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-tiny font-medium shrink-0 ${showBidHighlight ? "bids-count-badge" : "bg-[#2F3DF6] text-white"}`}>
+                                                    {bidsCount === 1 ? "1 bid" : `${bidsCount} bids`}
+                                                </span>
+                                            ) : (
+                                                <span className="text-gray-500">0 bids</span>
+                                            )}
+                                            {showBidHighlight && (
+                                                <span className="new-bid-arrived-badge inline-flex items-center px-2 py-0.5 rounded-full text-tiny font-semibold bg-amber-400 text-amber-900 shrink-0">
+                                                    New bid arrived
+                                                </span>
+                                            )}
+                                        </p>
+                                    )}
+                                    {location && (
+                                        <p className="text-normal font-regular text-black">Location: {location === LocationType.REMOTE ? "Remote" : location === LocationType.ON_SITE ? "On Site" : "Hybrid"}</p>
+                                    )}
+                                    <p className="text-normal font-regular text-black">
+                                        Budget: {minBudget} - {maxBudget} {currency}
+                                    </p>
+                                </div>
+                                <div 
+                                    onClick={() => {
+                                        const targetId = variant === "gig" ? gig_id : job_id;
+                                        if (!targetId) {
+                                            return;
+                                        }
+                                        const view = variant === "gig" ? "create-gig" : "create-job";
+                                        const queryParam = variant === "gig" ? "gigId" : "jobId";
+                                        const params = new URLSearchParams();
+                                        params.set("view", view);
+                                        params.set(queryParam, targetId);
+                                        router.push(`/dashboard?${params.toString()}`);
+                                    }}
+                                    className="cursor-pointer hover:scale-110 transition-transform duration-200"
+                                >
+                                    <Image 
+                                        src={editIcon} 
+                                        alt="edit" 
+                                        width={24} 
+                                        height={24}
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="flex flex-col">
+                                {deadline && (
+                                    <p className="text-normal font-regular text-black">
+                                        Due Date: {new Date(deadline * 1000).toLocaleDateString()}
+                                    </p>
+                                )}
+                                {status && (
+                                    <div className="flex gap-2">
+                                        <p>Status : </p>
+                                        <p className={`self-start text-tiny px-2 py-1 rounded-full ${status == "cancelled"? `bg-red-100 text-red-700` : status == "in_progress" ? `bg-purple-100 text-purple-700` : isExpired ? `bg-amber-100 text-amber-700` : `text-green-700 bg-green-100`}`}>
+                                            {isExpired ? "Expired" : status}
+                                        </p>
+                                    </div>
+                                )}
+                                {link && (
+                                    <p className="text-normal font-regular text-black">
+                                        Link: {link}
+                                    </p>
+                                )}
+                                {!link && (
+                                    <div className="h-6"></div>
+                                )}
+                            </div>
+                                <div className="w-full h-100 rounded-lg overflow-hidden mt-6">
+                                    <Image 
+                                        src={image || "/Grmps/default.png"}
+                                        alt="post image" 
+                                        width={1000}
+                                        height={500}
+                                        className="w-full h-full object-cover rounded-lg"
+                                    />
+                                </div>
+                            <div
+                                className={`overflow-hidden transition-[max-height] min-h-42 duration-200 ${expanded ? "max-h-none" : "max-h-42"} pt-6`}
+                            >
+                                <p
+                                    className="text-normal font-regular text-black"
+                                >
+                                    Description:
+                                </p>
+                                <p
+                                    ref={descriptionRef}
+                                    className="text-normal font-regular text-black"
+                                >
+                                    {description}
+                                </p>
+                            </div>
+                            {canToggle && (
+                                <button
+                                    type="button"
+                                    className="mt-3 text-small font-regular text-gray-500 cursor-pointer"
+                                    onClick={() => setExpanded((prev) => !prev)}
+                                >
+                                    {expanded ? "show less" : "show more"}
+                                </button>
+                            )}
+
+                            {!canToggle && (
+                                <div className="h-8.25"></div>
+                            )}
+                            
+                            <div className="pb-6"></div>
+                            
+                            {tags.length > 0 && (
+                                <div className="flex justify-end pt-6">
+                                    <div className="flex gap-2">
+                                        {tags.map((tag) => (
+                                            <div
+                                                key={tag}
+                                                className="linear-border linear-border--dark-hover rounded-full p-px"
+                                            >
+                                                <span className="linear-border__inner rounded-full bg-white px-3 py-1 text-tiny font-regular text-black">
+                                                    {tag}
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                            {variant === "job" && (
+                                <div className="flex justify-end pt-6">
+                                    <Button
+                                        padding='px-7 py-3'
+                                        onClick={handleApplications}
+                                    >
+                                        <p className='text-normal font-regular'>Applications</p>
+                                    </Button>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            </div>
+            
+            <ModalTemplate
+                isOpen={isOpen}
+                onClose={() => setIsOpen(false)}
+                // title={title}
+                actionLabel="Close"
+                onAction={() => {}}
+                className="px-4 py-3 lg:p-10.5"
+                customButton={true}                
+            >
+                <div>
+                    {/* <div className="linear-border rounded-lg p-0.25 linear-border--dark-hover">
+                        <div className="linear-border__inner rounded-[0.4375rem] p-6 bg-white"> */}
+                            <p className="lg:text-title text-subtitle lg:text-left text-center font-bold text-[#2F3DF6] py-6">Applicants</p>
+                            <div className="grid lg:grid-cols-3 grid-cols-1 gap-6 items-start">
+                                {applications.length > 0 ? (
+                                    applications.map((application) => (
+                                        <ApplicationPost
+                                            key={application.id}
+                                            item={application}
+                                            job_id={job_id}
+                                        />
+                                    ))
+                                ) : (
+                                    <p className="text-normal font-regular text-black">No applications found</p>
+                                )}
+                            </div>
+                        {/* </div>
+                    </div> */}
+                </div>
+            </ModalTemplate>
+        </div>
+    );
+};
+
+export default UserJobOrGigPost;

@@ -1,0 +1,46 @@
+{
+  "name": "bsc-escrow-interaction",
+  "version": "1.0.0",
+  "description": "Scripts to interact with BSC Escrow smart contract",
+  "type": "module",
+  "scripts": {
+    "deploy": "node scripts/deploy.js",
+    "fund": "node scripts/fund.js",
+    "deliver": "node scripts/deliver.js",
+    "approve": "node scripts/approve.js",
+    "withdraw": "node scripts/withdraw.js",
+    "cancel": "node scripts/cancel.js",
+    "dispute-init": "node scripts/disputeInit.js",
+    "dispute-pay": "node scripts/disputePay.js",
+    "dispute-resolve": "node scripts/disputeResolve.js",
+    "info": "node scripts/getInfo.js",
+    "setup-rewards": "node scripts/setupRewards.js",
+    "deploy:implementation": "node scripts/factory/deployImplementation.js",
+    "deploy:factory": "node scripts/factory/deployFactory.js",
+    "deploy:reward-distributor": "node scripts/factory/deployRewardDistributor.js",
+    "create:escrow": "node scripts/factory/createEscrow.js",
+    "list:escrows": "node scripts/factory/listEscrows.js",
+    "predict:address": "node scripts/factory/predictAddress.js",
+    "transfer:ownership": "node scripts/transfer-ownership-to-gnosis.js",
+    "check:ownership": "node scripts/transfer-ownership-to-gnosis.js check",
+    "approve:rewards": "node scripts/gnosis-approve-rewards.js",
+    "approve:distributor": "node scripts/approveDistributor.js",
+    "usdt:create": "node scripts/usdt-usdc/createEscrowBep20.js",
+    "usdt:fund": "node scripts/usdt-usdc/approveAndFundBep20.js",
+    "usdt:withdraw": "node scripts/usdt-usdc/withdrawBep20.js",
+    "usdt:info": "node scripts/usdt-usdc/getInfoBep20.js",
+    "usdt:dispute-init": "node scripts/usdt-usdc/disputeInitBep20.js",
+    "usdt:dispute-pay": "node scripts/usdt-usdc/disputePayBep20.js",
+    "usdt:full-flow": "node scripts/usdt-usdc/fullFlowTest.js"
+  },
+  "dependencies": {
+    "ethers": "^6.9.0",
+    "web3": "^4.3.0",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.0"
+  }
+}
+
