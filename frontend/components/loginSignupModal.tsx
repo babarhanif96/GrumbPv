@@ -34,11 +34,8 @@ type MetaMaskProvider = {
     removeListener?: (event: string, handler: (...args: unknown[]) => void) => void;
 };
 
-declare global {
-    interface Window {
-        ethereum?: MetaMaskProvider;
-    }
-}
+// Note: Window.ethereum is typed as `any` by wagmi/walletconnect packages,
+// so we cast at the use-site instead of redeclaring (avoids TS2717).
 
 const normalizeChainId = (value?: string | null) => {
     if (!value) {
@@ -76,7 +73,8 @@ const NETWORK_PARAMS = {
     blockExplorerUrls: CONFIG.blockExplorerUrls,
 } as const;
 
-const getEthereumProvider = () => (typeof window === "undefined" ? undefined : window.ethereum);
+const getEthereumProvider = (): MetaMaskProvider | undefined =>
+    typeof window === "undefined" ? undefined : ((window as unknown as { ethereum?: MetaMaskProvider }).ethereum);
 
 const isSameChain = (current?: string | null, target?: string | null) =>
     current?.toLowerCase() === target?.toLowerCase();

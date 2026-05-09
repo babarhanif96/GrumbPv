@@ -1,4 +1,16 @@
 #!/usr/bin/env node
+/**
+ * Creates client + freelancer via POST /database/users/with-email.
+ * Uses HTTP only — no DATABASE_URL. Point API_BASE_URL at dev if needed, e.g.
+ *   API_BASE_URL=https://dev.grumbuild.com/backend/api/v1 node scripts/create-test-users.mjs
+ * (path must match nginx: often .../backend/api/v1 when BACKEND_URL ends with /backend)
+ */
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import dotenv from "dotenv";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.resolve(__dirname, "../.env") });
 
 const API_BASE = process.env.API_BASE_URL || "http://localhost:5000/api/v1";
 

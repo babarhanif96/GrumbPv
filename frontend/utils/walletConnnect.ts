@@ -17,11 +17,7 @@ export type MetaMaskProvider = {
 let metamaskSdk: import("@metamask/sdk").MetaMaskSDK | null = null;
 let metamaskSdkProvider: MetaMaskProvider | null = null;
 
-declare global {
-    interface Window {
-        ethereum?: MetaMaskProvider;
-    }
-}
+// Note: Window.ethereum is typed as `any` by wagmi packages, so we cast at the use-site.
 
 const normalizeChainId = (value?: string | null) => {
     if (!value) {
@@ -79,7 +75,8 @@ const NETWORK_PARAMS = {
     blockExplorerUrls: normalizeUrlList(CONFIG.blockExplorerUrls),
 } as const;
 
-export const getEthereumProvider = () => (typeof window === "undefined" ? undefined : window.ethereum);
+export const getEthereumProvider = (): MetaMaskProvider | undefined =>
+    typeof window === "undefined" ? undefined : ((window as unknown as { ethereum?: MetaMaskProvider }).ethereum);
 
 /** Returns the MetaMask SDK provider when connected via SDK (mobile path). */
 export const getMetaMaskSdkProvider = (): MetaMaskProvider | null => metamaskSdkProvider;
