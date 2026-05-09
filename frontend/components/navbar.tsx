@@ -312,6 +312,7 @@ const Navbar = () => {
                                             />
                                         </div>
                                         <p className="text-logo font-poppins font-bold text-black">GrumBuild</p>
+                                        <span className="ml-2 px-2 py-0.5 rounded-md bg-pink-500 text-white text-[10px] font-bold uppercase tracking-wider">DEV</span>
                                     </div>
                                     {userRole === "freelancer" ? (  
                                         <div className="flex gap-8 text-normal font-regular text-black">    
@@ -532,6 +533,7 @@ const Navbar = () => {
                                         />
                                     </div>
                                     <p className="text-logo font-poppins font-bold text-black">GrumBuild</p>
+                                    <span className="ml-1 px-1.5 py-0.5 rounded-md bg-pink-500 text-white text-[9px] font-bold uppercase tracking-wider">DEV</span>
                                 </div>
                                 <Button
                                     padding="px-5 py-2"
@@ -576,6 +578,7 @@ const Navbar = () => {
                                     />
                                 </div>
                                 <p className="text-logo font-poppins font-bold text-black">GrumBuild</p>
+                                <span className="ml-1 px-1.5 py-0.5 rounded-md bg-pink-500 text-white text-[9px] font-bold uppercase tracking-wider">DEV</span>
                             </div>
                         </div>
 
