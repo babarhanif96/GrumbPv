@@ -164,6 +164,40 @@ export class JobApplicationService {
         updateData.confirm_edit_rounds = Math.min(2, existingRounds + 1);
       }
 
+      const nextClientConfirm =
+        updateData.client_confirm !== undefined
+          ? Boolean(updateData.client_confirm)
+          : existingJobApplication.client_confirm;
+      const nextFreelancerConfirm =
+        updateData.freelancer_confirm !== undefined
+          ? Boolean(updateData.freelancer_confirm)
+          : existingJobApplication.freelancer_confirm;
+
+      if (nextClientConfirm && nextFreelancerConfirm) {
+        const jobForEscrow = await jobService.getJobById(existingJobApplication.job_id);
+        if (!jobForEscrow) {
+          throw new AppError('Job not found', 404, 'JOB_NOT_FOUND');
+        }
+        const clientForEscrow = await userService.getUserById(jobForEscrow.client_id);
+        const freelancerForEscrow = await userService.getUserById(
+          existingJobApplication.freelancer_id
+        );
+        if (!clientForEscrow?.address?.trim()) {
+          throw new AppError(
+            'The job owner (client) must connect a crypto wallet to their account before both parties can finish confirming. Escrow needs the client wallet as the on-chain buyer. Ask the client to log in with their wallet once, then you can confirm again.',
+            400,
+            'CLIENT_WALLET_REQUIRED_FOR_ESCROW'
+          );
+        }
+        if (!freelancerForEscrow?.address?.trim()) {
+          throw new AppError(
+            'Your freelancer account must have a wallet address linked before escrow can be created. Connect your wallet and try again.',
+            400,
+            'FREELANCER_WALLET_REQUIRED_FOR_ESCROW'
+          );
+        }
+      }
+
       const updateResult = await this.prisma.job_applications_docs.update({
         where: { id },
         data: updateData as Prisma.job_applications_docsUncheckedUpdateInput,

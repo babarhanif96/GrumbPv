@@ -95,12 +95,12 @@ export class FactoryService {
       }
 
       const client = await userService.getUserById(existingJob.client_id);
-      if (!client || client.address === null) {
+      if (!client || !client.address?.trim()) {
         throw new AppError('Client wallet not found', 404, 'CLIENT_WALLET_NOT_FOUND');
       }
 
       const freelancer = await userService.getUserById(exsitingJobMilestone.freelancer_id);
-      if (!freelancer || freelancer.address === null) {
+      if (!freelancer || !freelancer.address?.trim()) {
         throw new AppError('Freelancer wallet not found', 404, 'FREELANCER_WALLET_NOT_FOUND');
       }
 
@@ -233,9 +233,13 @@ export class FactoryService {
         escrowAddress,
         transactionHash: tx.hash,
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       logger.error('Error creating escrow:', error);
-      throw new AppError(`Failed to create escrow: ${error.message}`, 500);
+      if (error instanceof AppError) {
+        throw error;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      throw new AppError(`Failed to create escrow: ${message}`, 500);
     }
   }
 
@@ -280,12 +284,12 @@ export class FactoryService {
       }
 
       const client = await userService.getUserById(existingJob.client_id);
-      if (!client || client.address === null) {
+      if (!client || !client.address?.trim()) {
         throw new AppError('Client wallet not found', 404, 'CLIENT_WALLET_NOT_FOUND');
       }
 
       const freelancer = await userService.getUserById(exsitingJobMilestone.freelancer_id);
-      if (!freelancer || freelancer.address === null) {
+      if (!freelancer || !freelancer.address?.trim()) {
         throw new AppError('Freelancer wallet not found', 404, 'FREELANCER_WALLET_NOT_FOUND');
       }
 
@@ -377,9 +381,13 @@ export class FactoryService {
         escrowAddress,
         transactionHash: tx.hash,
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       logger.error('Error creating deterministic escrow:', error);
-      throw new AppError(`Failed to create deterministic escrow: ${error.message}`, 500);
+      if (error instanceof AppError) {
+        throw error;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      throw new AppError(`Failed to create deterministic escrow: ${message}`, 500);
     }
   }
 

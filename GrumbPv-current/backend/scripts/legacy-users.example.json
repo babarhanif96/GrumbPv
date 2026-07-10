@@ -1,0 +1,22 @@
+[
+  {
+    "email": "client@example.com",
+    "address": "0x1234567890123456789012345678901234567890",
+    "role": "client",
+    "display_name": "Legacy Client",
+    "password": "change-on-first-login",
+    "finished_job_num": 2,
+    "total_fund": 1.5,
+    "is_verified": true
+  },
+  {
+    "email": "freelancer@example.com",
+    "address": "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+    "role": "freelancer",
+    "display_name": "Legacy Freelancer",
+    "password": "change-on-first-login",
+    "finished_job_num": 5,
+    "total_fund": 3.2,
+    "is_verified": true
+  }
+]

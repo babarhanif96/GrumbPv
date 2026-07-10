@@ -1,0 +1,201 @@
+import { chain_txs, notification_entity, notification_type, Prisma } from '@prisma/client';
+import { AppError } from '../../middlewares/errorHandler.js';
+import { userService } from './user.service.js';
+import { logger } from '../../utils/logger.js';
+import { prisma } from '../../prisma.js';
+import { notificationService } from './notification.service.js';
+import { jobMilestoneService } from './job.milestone.service.js';
+import { jobService } from './job.service.js';
+
+export class ChainTxsService {
+  private prisma = prisma;
+
+  async createChainTx(
+    purpose: string,
+    chain_id: number,
+    job_milestone_id: string,
+    from_address: string,
+    to_address: string,
+    tx_hash: string,
+    status: string,
+    user_id?: string
+  ): Promise<chain_txs> {
+    try {
+      if (!tx_hash || !from_address || !to_address || !job_milestone_id) {
+        throw new AppError(
+          'Tx hash, from address, to address, and job milestone id are required',
+          400,
+          'TX_HASH_FROM_ADDRESS_TO_ADDRESS_JOB_MILESTONE_ID_REQUIRED'
+        );
+      }
+
+      const existingChainTx = await this.prisma.chain_txs.findUnique({
+        where: { tx_hash },
+      });
+      if (existingChainTx) {
+        throw new AppError('Chain tx already exists', 400, 'CHAIN_TX_ALREADY_EXISTS');
+      }
+
+      const existingJobMilestone = await jobMilestoneService.getJobMilestoneById(job_milestone_id);
+      if (!existingJobMilestone) {
+        throw new AppError('Job milestone not found', 404, 'JOB_MILESTONE_NOT_FOUND');
+      }
+
+      const existingJob = await jobService.getJobById(existingJobMilestone.job_id);
+      if (!existingJob) {
+        throw new AppError('Job not found', 404, 'JOB_NOT_FOUND');
+      }
+
+      const createChainTxData = await this.prisma.chain_txs.create({
+        data: {
+          purpose,
+          chain_id,
+          job_milestone_id,
+          from_address,
+          to_address,
+          tx_hash,
+          status,
+          user_id: user_id ?? null,
+        },
+      })
+
+      if(purpose === "withdraw_funds") {
+        await notificationService.createNotification({
+          user_id: existingJobMilestone.freelancer_id,
+          type: notification_type.WITHDRAW_FUNDS,
+          entity_type: notification_entity.chain_tx,
+          entity_id: createChainTxData.tx_hash ?? "",
+          title: "Funds withdrawn",
+          body: "Funds have been withdrawn from the escrow",
+          payload: Prisma.JsonNull,
+          read_at: null,
+          created_at: new Date(),
+        });
+
+        await notificationService.createNotification({
+          user_id: existingJob.client_id,
+          type: notification_type.WITHDRAW_FUNDS,
+          entity_type: notification_entity.chain_tx,
+          entity_id: createChainTxData.tx_hash ?? "",
+          title: "Funds withdrawn",
+          body: "Funds have been withdrawn from the escrow",
+          payload: Prisma.JsonNull,
+          read_at: null,
+          created_at: new Date(),
+        });
+      }
+
+      return createChainTxData;
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      logger.error('Error creating chain tx', { error });
+      throw new AppError('Error creating chain tx', 500, 'DB_CHAIN_TX_CREATION_FAILED');
+    }
+  }
+
+  async deleteChainTx(id: string): Promise<void> {
+    try {
+      if (!id) {
+        throw new AppError('Id is required', 400, 'ID_REQUIRED');
+      }
+      await this.prisma.chain_txs.delete({
+        where: { id },
+      });
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      logger.error('Error deleting chain tx', { error });
+      throw new AppError('Error deleting chain tx', 500, 'DB_CHAIN_TX_DELETION_FAILED');
+    }
+  }
+
+  async getChainTxByTxHash(tx_hash: string): Promise<chain_txs | null> {
+    try {
+      if (!tx_hash) {
+        throw new AppError('Tx hash is required', 400, 'TX_HASH_REQUIRED');
+      }
+
+      const validTxHash = await this.prisma.chain_txs.findUnique({
+        where: { tx_hash },
+      });
+
+      return validTxHash;
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      logger.error('Error getting chain tx by tx hash', { error });
+      throw new AppError(
+        'Error getting chain tx by tx hash',
+        500,
+        'DB_CHAIN_TX_GET_BY_TX_HASH_FAILED'
+      );
+    }
+  }
+
+  async getChainTxById(id: string): Promise<chain_txs | null> {
+    try {
+      if (!id) {
+        throw new AppError('Id is required', 400, 'ID_REQUIRED');
+      }
+      const validId = await this.prisma.chain_txs.findUnique({
+        where: { id },
+      });
+      if (!validId) {
+        throw new AppError('Chain tx not found', 404, 'CHAIN_TX_NOT_FOUND');
+      }
+      return validId;
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      logger.error('Error getting chain tx by id', { error });
+      throw new AppError('Error getting chain tx by id', 500, 'DB_CHAIN_TX_GET_BY_ID_FAILED');
+    }
+  }
+
+  async getChainTxsByUserId(user_id: string): Promise<chain_txs[] | null> {
+    try {
+      if (!user_id) {
+        throw new AppError('User ID is required', 400, 'USER_ID_REQUIRED');
+      }
+      const validUserId = await userService.getUserById(user_id);
+      if (!validUserId) {
+        throw new AppError('User not found', 404, 'USER_NOT_FOUND');
+      }
+      const chainTxs = await this.prisma.chain_txs.findMany({
+        where: { user_id },
+        orderBy: { created_at: 'desc' },
+      });
+      return chainTxs;
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      logger.error('Error getting chain txs by user id', { error });
+      throw new AppError(
+        'Error getting chain txs by user id',
+        500,
+        'DB_CHAIN_TXS_GET_BY_USER_ID_FAILED'
+      );
+    }
+  }
+
+  async getChainTxs(): Promise<chain_txs[] | null> {
+    try {
+      const chainTxs = await this.prisma.chain_txs.findMany();
+      return chainTxs;
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      logger.error('Error getting chain txs', { error });
+      throw new AppError('Error getting chain txs', 500, 'DB_CHAIN_TXS_GET_FAILED');
+    }
+  }
+}
+
+export const chainTxsService = new ChainTxsService();

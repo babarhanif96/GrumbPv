@@ -1,0 +1,553 @@
+import { logger } from '../../utils/logger.js';
+import { AppError } from '../../middlewares/errorHandler.js';
+import {
+  Prisma,
+  job_milestones,
+  job_status,
+  milestone_status,
+  notification_entity,
+  notification_type,
+  user_role,
+} from '@prisma/client';
+import { userService } from './user.service.js';
+import { jobService } from './job.service.js';
+import { prisma } from '../../prisma.js';
+import { notificationService } from './notification.service.js';
+import { emailService } from '../email/email.service.js';
+import { systemStateService } from './systemState.service.js';
+import { Decimal } from '@prisma/client/runtime/client.js';
+
+export class JobMilestoneService {
+  private prisma = prisma;
+
+  public async createJobMilestone(
+    jobMilestone: Prisma.job_milestonesUncheckedCreateInput
+  ): Promise<job_milestones> {
+    try {
+      if (
+        !jobMilestone.job_id ||
+        !jobMilestone.order_index ||
+        !jobMilestone.title ||
+        !jobMilestone.freelancer_id
+      ) {
+        throw new AppError(
+          'Job ID, order index, title and freelancer ID are required',
+          400,
+          'JOB_ID_ORDER_INDEX_TITLE_FREELANCER_ID_REQUIRED'
+        );
+      }
+      const existingJob = await jobService.getJobById(jobMilestone.job_id);
+      if (!existingJob) {
+        throw new AppError('Job not found', 404, 'JOB_NOT_FOUND');
+      }
+
+      const existingFreelancer = await userService.getUserById(
+        jobMilestone.freelancer_id as string
+      );
+      if (!existingFreelancer) {
+        throw new AppError('Freelancer not found', 404, 'FREELANCER_NOT_FOUND');
+      }
+      if (existingFreelancer.role !== 'freelancer') {
+        throw new AppError('Freelancer is not a freelancer', 400, 'FREELANCER_IS_NOT_A_FREELANCER');
+      }
+
+      if (jobMilestone.due_at) {
+        const dueDate =
+          jobMilestone.due_at instanceof Date
+            ? jobMilestone.due_at
+            : new Date(jobMilestone.due_at as string);
+        const now = new Date();
+        const oneYearFromNow = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+
+        if (isNaN(dueDate.getTime())) {
+          throw new AppError('Invalid due date format', 400, 'INVALID_DUE_DATE_FORMAT');
+        }
+
+        if (dueDate < now) {
+          throw new AppError('Due date is in the past', 400, 'DUE_DATE_IN_PAST');
+        }
+        if (dueDate > oneYearFromNow) {
+          throw new AppError(
+            'Due date is more than 1 year in the future',
+            400,
+            'DUE_DATE_MORE_THAN_1_YEAR_IN_FUTURE'
+          );
+        }
+        // if (existingJob.deadline_at && dueDate >= existingJob.deadline_at) {
+        //   throw new AppError(
+        //     'Due date is greater than the job deadline',
+        //     400,
+        //     'DUE_DATE_GREATER_THAN_JOB_DEADLINE'
+        //   );
+        // }
+        if (existingJob.created_at && dueDate <= existingJob.created_at) {
+          throw new AppError(
+            'Due date is less than the job creation date',
+            400,
+            'DUE_DATE_LESS_THAN_JOB_CREATION_DATE'
+          );
+        }
+      }
+      const existingJobMilestone = await this.prisma.job_milestones.findFirst({
+        where: { job_id: jobMilestone.job_id, order_index: jobMilestone.order_index },
+      });
+      if (existingJobMilestone) {
+        throw new AppError('Job milestone already exists', 400, 'JOB_MILESTONE_ALREADY_EXISTS');
+      }
+      const newJobMilestone = await this.prisma.job_milestones.create({
+        data: jobMilestone,
+      });
+      await notificationService.createNotification({
+        user_id: existingJob.client_id,
+        actor_user_id: newJobMilestone.freelancer_id,
+        type: notification_type.MILESTONE_STARTED,
+        entity_type: notification_entity.milestone,
+        entity_id: newJobMilestone.id,
+        title: 'Milestone started',
+        body: 'Your milestone has been started',
+        payload: Prisma.JsonNull,
+        read_at: null,
+        created_at: new Date(),
+      });
+      await notificationService.createNotification({
+        user_id: newJobMilestone.freelancer_id,
+        actor_user_id: existingJob.client_id,
+        type: notification_type.MILESTONE_STARTED,
+        entity_type: notification_entity.milestone,
+        entity_id: newJobMilestone.id,
+        title: 'Milestone started',
+        body: 'Your milestone has been started',
+        payload: Prisma.JsonNull,
+        read_at: null,
+        created_at: new Date(),
+      });
+      return newJobMilestone;
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      logger.error('Error creating job milestone', { error });
+      throw new AppError('Error creating job milestone', 500, 'DB_JOB_MILESTONE_CREATION_FAILED');
+    }
+  }
+
+  public async updateJobMilestone(
+    id: string,
+    jobMilestone: Prisma.job_milestonesUncheckedUpdateInput
+  ): Promise<job_milestones> {
+    try {
+      if (!id) {
+        throw new AppError('Job milestone ID is required', 400, 'JOB_MILESTONE_ID_REQUIRED');
+      }
+      const existingJobMilestone = await this.prisma.job_milestones.findUnique({
+        where: { id },
+      });
+      if (!existingJobMilestone) {
+        throw new AppError('Job milestone not found', 404, 'JOB_MILESTONE_NOT_FOUND');
+      }
+      const jobIdForValidation = (jobMilestone.job_id as string) || existingJobMilestone.job_id;
+      const existingJob = await jobService.getJobById(jobIdForValidation);
+      if (!existingJob) {
+        throw new AppError('Job not found', 404, 'JOB_NOT_FOUND');
+      }
+
+      const freelancerIdForValidation =
+        (jobMilestone.freelancer_id as string) || existingJobMilestone.freelancer_id;
+      const existingFreelancer = await userService.getUserById(freelancerIdForValidation);
+      if (!existingFreelancer) {
+        throw new AppError('Freelancer not found', 404, 'FREELANCER_NOT_FOUND');
+      }
+      if (existingFreelancer.role !== 'freelancer') {
+        throw new AppError('Freelancer is not a freelancer', 400, 'FREELANCER_IS_NOT_A_FREELANCER');
+      }
+
+      if (jobMilestone.due_at) {
+        const dueDate =
+          jobMilestone.due_at instanceof Date
+            ? jobMilestone.due_at
+            : new Date(jobMilestone.due_at as string);
+        const now = new Date();
+        const oneYearFromNow = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+
+        if (isNaN(dueDate.getTime())) {
+          throw new AppError('Invalid due date format', 400, 'INVALID_DUE_DATE_FORMAT');
+        }
+
+        if (dueDate < now) {
+          throw new AppError('Due date is in the past', 400, 'DUE_DATE_IN_PAST');
+        }
+        if (dueDate > oneYearFromNow) {
+          throw new AppError(
+            'Due date is more than 1 year in the future',
+            400,
+            'DUE_DATE_MORE_THAN_1_YEAR_IN_FUTURE'
+          );
+        }
+      }
+      const now = new Date();
+      if(jobMilestone.status === milestone_status.funded) {
+        const fundCycle = (now.getTime() - existingJobMilestone.created_at.getTime()) / 1000;
+        await userService.updateClientFundTime(existingJob.client_id, fundCycle);
+      }
+      if(jobMilestone.status === milestone_status.disputedByClient || jobMilestone.status === milestone_status.disputedByFreelancer ) {
+        await jobService.updateJobStatusById(existingJobMilestone.job_id, job_status.in_review);
+        await this.notifyAdminsOfDispute(existingJobMilestone.job_id, existingJobMilestone.id, jobMilestone.status);
+      }
+      if(jobMilestone.status === milestone_status.disputedWithCounterSide) {
+        await this.notifyAdminsOfDispute(existingJobMilestone.job_id, existingJobMilestone.id, jobMilestone.status);
+      }
+      if(jobMilestone.status === milestone_status.resolvedToBuyer || jobMilestone.status === milestone_status.resolvedToVendor) {
+        await jobService.updateJobStatusById(existingJobMilestone.job_id, job_status.completed);
+        await systemStateService.increaseWithdraw(new Decimal(existingJobMilestone.amount));
+        if(jobMilestone.status === milestone_status.resolvedToBuyer) {
+          await userService.updateUserFunds(existingJob.client_id, -Number(existingJobMilestone.amount), 0);
+        }
+        if(jobMilestone.status === milestone_status.resolvedToVendor) {
+          await userService.updateUserFunds(existingJobMilestone.freelancer_id, Number(existingJobMilestone.amount), 0);
+        }
+      }
+      const updatedJobMilestone = await this.prisma.job_milestones.update({
+        where: { id },
+        data: {
+          ...jobMilestone,
+          updated_at: now,
+        },
+      });
+      await notificationService.createNotification({
+        user_id: existingJob.client_id,
+        actor_user_id: updatedJobMilestone.freelancer_id,
+        type:
+          updatedJobMilestone.status === milestone_status.funded
+            ? notification_type.MILESTONE_FUNDED
+            : updatedJobMilestone.status === milestone_status.delivered
+              ? notification_type.MILESTONE_DELIVERED
+              : updatedJobMilestone.status === milestone_status.approved
+                ? notification_type.MILESTONE_APPROVED
+                : updatedJobMilestone.status === milestone_status.released
+                  ? notification_type.MILESTONE_FUNDS_RELEASED
+                  : updatedJobMilestone.status === milestone_status.disputedByClient
+                    ? notification_type.DISPUTE_STARTED
+                    : updatedJobMilestone.status === milestone_status.disputedByFreelancer
+                      ? notification_type.DISPUTE_STARTED
+                      : updatedJobMilestone.status === milestone_status.disputedWithCounterSide
+                        ? notification_type.DISPUTE_STARTED
+                        : updatedJobMilestone.status === milestone_status.resolvedToBuyer
+                          ? notification_type.DISPUTE_RESOLVED
+                          : updatedJobMilestone.status === milestone_status.resolvedToVendor
+                            ? notification_type.DISPUTE_RESOLVED
+                            : updatedJobMilestone.status === milestone_status.cancelled
+                              ? notification_type.MILESTONE_CANCELLED
+                              : notification_type.MILESTONE_ESCROW_DEPLOYED,
+        entity_type: notification_entity.milestone,
+        entity_id: updatedJobMilestone.status === milestone_status.pending_fund ? updatedJobMilestone.escrow ?? "" : updatedJobMilestone.id,
+        title:
+          updatedJobMilestone.status === milestone_status.funded
+            ? 'Milestone funded'
+            : updatedJobMilestone.status === milestone_status.delivered
+              ? 'Milestone delivered'
+              : updatedJobMilestone.status === milestone_status.approved
+                ? 'Milestone approved'
+                : updatedJobMilestone.status === milestone_status.released
+                  ? 'Milestone funds released'
+                  : updatedJobMilestone.status === milestone_status.disputedByClient
+                    ? 'Dispute started by client'
+                    : updatedJobMilestone.status === milestone_status.disputedByFreelancer
+                      ? 'Dispute started by freelancer'
+                      : updatedJobMilestone.status === milestone_status.disputedWithCounterSide
+                        ? 'Dispute started with counter side'
+                        : updatedJobMilestone.status === milestone_status.resolvedToBuyer
+                          ? 'Dispute resolved to buyer'
+                          : updatedJobMilestone.status === milestone_status.resolvedToVendor
+                            ? 'Dispute resolved to vendor'
+                            : updatedJobMilestone.status === milestone_status.cancelled
+                              ? 'Milestone cancelled'
+                              : 'Milestone Escrow Deployed',
+        body:
+          updatedJobMilestone.status === milestone_status.funded
+            ? 'Your milestone has been funded'
+            : updatedJobMilestone.status === milestone_status.delivered
+              ? 'Your milestone has been delivered'
+              : updatedJobMilestone.status === milestone_status.approved
+                ? 'Your milestone has been approved'
+                : updatedJobMilestone.status === milestone_status.released
+                  ? 'Your milestone funds have been released'
+                  : updatedJobMilestone.status === milestone_status.disputedByClient
+                    ? 'Your dispute has been started by client'
+                    : updatedJobMilestone.status === milestone_status.disputedByFreelancer
+                      ? 'Your dispute has been started by freelancer'
+                      : updatedJobMilestone.status === milestone_status.disputedWithCounterSide
+                        ? 'Your dispute has been started with counter side'
+                        : updatedJobMilestone.status === milestone_status.resolvedToBuyer
+                          ? 'Your dispute has been resolved to buyer'
+                          : updatedJobMilestone.status === milestone_status.resolvedToVendor
+                            ? 'Your dispute has been resolved to vendor'
+                            : updatedJobMilestone.status === milestone_status.cancelled
+                              ? 'Your milestone has been cancelled'
+                              : 'Your milestone escrow has been deployed',
+        payload: Prisma.JsonNull,
+        read_at: null,
+        created_at: new Date(),
+      });
+      await notificationService.createNotification({
+        user_id: updatedJobMilestone.freelancer_id,
+        actor_user_id: existingJob.client_id,
+        type:
+          updatedJobMilestone.status === milestone_status.funded
+            ? notification_type.MILESTONE_FUNDED
+            : updatedJobMilestone.status === milestone_status.delivered
+              ? notification_type.MILESTONE_DELIVERED
+              : updatedJobMilestone.status === milestone_status.approved
+                ? notification_type.MILESTONE_APPROVED
+                : updatedJobMilestone.status === milestone_status.released
+                  ? notification_type.MILESTONE_FUNDS_RELEASED
+                  : updatedJobMilestone.status === milestone_status.disputedByClient
+                    ? notification_type.DISPUTE_STARTED
+                    : updatedJobMilestone.status === milestone_status.disputedByFreelancer
+                      ? notification_type.DISPUTE_STARTED
+                      : updatedJobMilestone.status === milestone_status.disputedWithCounterSide
+                        ? notification_type.DISPUTE_STARTED
+                        : updatedJobMilestone.status === milestone_status.resolvedToBuyer
+                          ? notification_type.DISPUTE_RESOLVED
+                          : updatedJobMilestone.status === milestone_status.resolvedToVendor
+                            ? notification_type.DISPUTE_RESOLVED
+                            : updatedJobMilestone.status === milestone_status.cancelled
+                              ? notification_type.MILESTONE_CANCELLED
+                              : notification_type.MILESTONE_ESCROW_DEPLOYED,
+        entity_type: notification_entity.milestone,
+        entity_id: updatedJobMilestone.status === milestone_status.pending_fund ? updatedJobMilestone.escrow ?? "" : updatedJobMilestone.id,
+        title:
+          updatedJobMilestone.status === milestone_status.funded
+            ? 'Milestone funded'
+            : updatedJobMilestone.status === milestone_status.delivered
+              ? 'Milestone delivered'
+              : updatedJobMilestone.status === milestone_status.approved
+                ? 'Milestone approved'
+                : updatedJobMilestone.status === milestone_status.released
+                  ? 'Milestone funds released'
+                  : updatedJobMilestone.status === milestone_status.disputedByClient
+                    ? 'Dispute started by client'
+                    : updatedJobMilestone.status === milestone_status.disputedByFreelancer
+                      ? 'Dispute started by freelancer'
+                      : updatedJobMilestone.status === milestone_status.disputedWithCounterSide
+                        ? 'Dispute started with counter side'
+                        : updatedJobMilestone.status === milestone_status.resolvedToBuyer
+                          ? 'Dispute resolved to buyer'
+                          : updatedJobMilestone.status === milestone_status.resolvedToVendor
+                            ? 'Dispute resolved to vendor'
+                            : updatedJobMilestone.status === milestone_status.cancelled
+                              ? 'Milestone cancelled'
+                              : 'Milestone Escrow Deployed',
+        body:
+          updatedJobMilestone.status === milestone_status.funded
+            ? 'Your milestone has been funded'
+            : updatedJobMilestone.status === milestone_status.delivered
+              ? 'Your milestone has been delivered'
+              : updatedJobMilestone.status === milestone_status.approved
+                ? 'Your milestone has been approved'
+                : updatedJobMilestone.status === milestone_status.released
+                  ? 'Your milestone funds have been released'
+                  : updatedJobMilestone.status === milestone_status.disputedByClient
+                    ? 'Your dispute has been started by client'
+                    : updatedJobMilestone.status === milestone_status.disputedByFreelancer
+                      ? 'Your dispute has been started by freelancer'
+                      : updatedJobMilestone.status === milestone_status.disputedWithCounterSide
+                        ? 'Your dispute has been started with counter side'
+                        : updatedJobMilestone.status === milestone_status.resolvedToBuyer
+                          ? 'Your dispute has been resolved to buyer'
+                          : updatedJobMilestone.status === milestone_status.resolvedToVendor
+                            ? 'Your dispute has been resolved to vendor'
+                            : updatedJobMilestone.status === milestone_status.cancelled
+                              ? 'Your milestone has been cancelled'
+                              : 'Your milestone escrow has been deployed',
+        payload: Prisma.JsonNull,
+        read_at: null,
+        created_at: new Date(),
+      });
+      return updatedJobMilestone;
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      logger.error('Error updating job milestone', { error });
+      throw new AppError('Error updating job milestone', 500, 'DB_JOB_MILESTONE_UPDATE_FAILED');
+    }
+  }
+
+  //  make this admin only
+  public async deleteJobMilestone(id: string): Promise<void> {
+    try {
+      if (!id) {
+        throw new AppError('Job milestone ID is required', 400, 'JOB_MILESTONE_ID_REQUIRED');
+      }
+      const existingJobMilestone = await this.prisma.job_milestones.findUnique({
+        where: { id },
+      });
+      if (!existingJobMilestone) {
+        throw new AppError('Job milestone not found', 404, 'JOB_MILESTONE_NOT_FOUND');
+      }
+      await this.prisma.job_milestones.delete({
+        where: { id },
+      });
+      return;
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      logger.error('Error deleting job milestone', { error });
+      throw new AppError('Error deleting job milestone', 500, 'DB_JOB_MILESTONE_DELETION_FAILED');
+    }
+  }
+
+  public async getJobMilestoneByEscrowAddress(escrow_address: string): Promise<job_milestones> {
+    try {
+      if (!escrow_address) {
+        throw new AppError('Escrow address is required', 400, 'ESCROW_ADDRESS_REQUIRED');
+      }
+      const existingJobMilestone = await this.prisma.job_milestones.findFirst({
+        where: { escrow: escrow_address },
+      });
+      if (!existingJobMilestone) {
+        throw new AppError('Job milestone not found', 404, 'JOB_MILESTONE_NOT_FOUND');
+      }
+      return existingJobMilestone;
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      logger.error('Error getting job milestone by escrow address', { error });
+      throw new AppError('Error getting job milestone by escrow address', 500, 'DB_JOB_MILESTONE_GET_BY_ESCROW_ADDRESS_FAILED');
+    }
+  }
+
+  public async getJobMilestoneById(id: string): Promise<job_milestones> {
+    try {
+      if (!id) {
+        throw new AppError('Job milestone ID is required', 400, 'JOB_MILESTONE_ID_REQUIRED');
+      }
+      const existingJobMilestone = await this.prisma.job_milestones.findUnique({
+        where: { id },
+      });
+      if (!existingJobMilestone) {
+        throw new AppError('Job milestone not found', 404, 'JOB_MILESTONE_NOT_FOUND');
+      }
+      return existingJobMilestone;
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      logger.error('Error getting job milestone by id', { error });
+      throw new AppError(
+        'Error getting job milestone by id',
+        500,
+        'DB_JOB_MILESTONE_GET_BY_ID_FAILED'
+      );
+    }
+  }
+
+  public async getJobMilestonesByJobId(job_id: string): Promise<job_milestones[]> {
+    try {
+      if (!job_id) {
+        throw new AppError('Job ID is required', 400, 'JOB_ID_REQUIRED');
+      }
+      const existingJob = await jobService.getJobById(job_id);
+      if (!existingJob) {
+        throw new AppError('Job not found', 404, 'JOB_NOT_FOUND');
+      }
+      const existingJobMilestones = await this.prisma.job_milestones.findMany({
+        where: { job_id },
+        include: {
+          job: true,
+          jobApplicationsDocs: true,
+        },
+      });
+      return existingJobMilestones;
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      logger.error('Error getting job milestones by job id', { error });
+      throw new AppError(
+        'Error getting job milestones by job id',
+        500,
+        'DB_JOB_MILESTONES_GET_BY_JOB_ID_FAILED'
+      );
+    }
+  }
+
+  public async getJobMilestones(): Promise<job_milestones[]> {
+    try {
+      const existingJobMilestones = await this.prisma.job_milestones.findMany();
+      return existingJobMilestones;
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      logger.error('Error getting job milestones', { error });
+      throw new AppError('Error getting job milestones', 500, 'DB_JOB_MILESTONES_GET_FAILED');
+    }
+  }
+
+  public async getJobMilestonesByUserId(user_id: string): Promise<job_milestones[]> {
+    try {
+      const existingJobMilestones = await this.prisma.job_milestones.findMany({
+        where: { freelancer_id: user_id },
+        include: {
+          job: true,
+          jobApplicationsDocs: true,
+        },
+      });
+      return existingJobMilestones;
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      logger.error('Error getting job milestones by user id', { error });
+      throw new AppError(
+        'Error getting job milestones by user id',
+        500,
+        'DB_JOB_MILESTONES_GET_BY_USER_ID_FAILED'
+      );
+    }
+  }
+
+  private async notifyAdminsOfDispute(jobId: string, milestoneId: string, status: milestone_status): Promise<void> {
+    try {
+      const admins = await this.prisma.users.findMany({
+        where: {
+          role: user_role.admin,
+          email: { not: null },
+        },
+        select: {
+          email: true,
+        },
+      });
+
+      if (admins.length === 0) {
+        return;
+      }
+
+      const baseUrl = process.env.FRONTEND_URL || 'https://grumbuild.com';
+      const adminUrl = `${baseUrl}/admin/dashboard?view=disputes&jobId=${jobId}`;
+
+      const title = 'Dispute requires admin review';
+      const body = `A dispute has been ${status === milestone_status.disputedByClient ? 'started by client' : status === milestone_status.disputedByFreelancer ? 'started by freelancer' : 'started with counter side'} for job ${jobId} (milestone ${milestoneId}).`;
+
+      await Promise.all(
+        admins
+          .filter((admin) => admin.email)
+          .map((admin) =>
+            emailService.sendNotificationEmail(
+              admin.email as string,
+              title,
+              body,
+              adminUrl,
+              'Open Admin Panel'
+            )
+          )
+      );
+    } catch (error) {
+      logger.error('Failed to send admin dispute email', { error, jobId, milestoneId });
+    }
+  }
+}
+export const jobMilestoneService = new JobMilestoneService();
