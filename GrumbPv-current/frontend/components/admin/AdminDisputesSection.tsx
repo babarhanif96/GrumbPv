@@ -9,6 +9,7 @@ import {
   resolveDispute,
 } from '@/utils/adminFunctions';
 import { AdminDisputeMilestone, AdminJobDetails, Pagination } from '@/types/admin';
+import { JobMilestoneStatus } from '@/types/jobMilestone';
 import { CONFIG } from '@/config/config';
 import SmallLoading from '@/components/smallLoading';
 import AdminJobModal from '@/components/admin/modals/AdminJobModal';
@@ -111,7 +112,7 @@ const AdminDisputesSection = () => {
       return;
     }
     await updateJobMilestone(milestoneId, {
-      status: favorBuyer ? 'resolvedToBuyer' : 'resolvedToVendor',
+      status: favorBuyer ? JobMilestoneStatus.RESOLVED_TO_BUYER : JobMilestoneStatus.RESOLVED_TO_VENDOR,
     });
     toast.success(`Dispute resolved in favor of ${favorBuyer ? 'client' : 'freelancer'}`);
     setResolvingId(null);
