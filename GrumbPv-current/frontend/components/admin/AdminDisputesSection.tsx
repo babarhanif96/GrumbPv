@@ -212,15 +212,15 @@ const AdminDisputesSection = () => {
                     <>
                       <Button
                         padding="px-4 py-2"
+                        variant={resolvingId === dispute.id ? 'disable' : 'primary'}
                         onClick={() => handleResolve(dispute.id, true)}
-                        disabled={resolvingId === dispute.id}
                       >
                         Resolve to client
                       </Button>
                       <Button
                         padding="px-4 py-2"
+                        variant={resolvingId === dispute.id ? 'disable' : 'primary'}
                         onClick={() => handleResolve(dispute.id, false)}
-                        disabled={resolvingId === dispute.id}
                       >
                         Resolve to freelancer
                       </Button>
