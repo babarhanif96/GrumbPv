@@ -846,13 +846,13 @@ export class AdminService {
       const { page = 1, limit = 20, status } = params;
       const skip = (page - 1) * limit;
 
-      const disputeStatuses = [
+      const disputeStatuses: milestone_status[] = [
         milestone_status.disputedByClient,
         milestone_status.disputedByFreelancer,
         milestone_status.disputedWithCounterSide,
       ];
 
-      let statusFilter = disputeStatuses;
+      let statusFilter: milestone_status[] = disputeStatuses;
       if (status && status !== 'all') {
         const mapped = milestone_status[status as keyof typeof milestone_status];
         if (mapped && disputeStatuses.includes(mapped)) {
